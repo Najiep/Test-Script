@@ -1,0 +1,105 @@
+name: Build grzyClothTool Meta Generator Fix
+
+on:
+  push:
+    branches:
+      - ai/grzy-meta-generator-fix-20260803
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout patch workspace
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Clone grzyClothTool v1.3.0 source
+        shell: pwsh
+        run: |
+          git clone https://github.com/grzybeek/grzyClothTool.git source
+          git -C source checkout 9244b00dce5bb9956acb9999415e6537844fc42b
+
+      - name: Patch full shop meta generation
+        shell: pwsh
+        run: python tools/patch_grzy_meta.py
+
+      - name: Build CodeWalker dependencies
+        shell: pwsh
+        run: |
+          dotnet build source/CodeWalker/CodeWalker.Core/CodeWalker.Core.csproj -c Release
+          dotnet build source/CodeWalker/CodeWalker/CodeWalker.csproj -c Release
+
+      - name: Publish fixed single-file EXE
+        shell: pwsh
+        run: |
+          dotnet publish source/grzyClothTool/grzyClothTool.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishReadyToRun=false `
+            -p:PublishTrimmed=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o publish
+
+      - name: Package and verify output
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          $sourceExe = "publish/grzyClothTool.exe"
+          $targetExe = "artifact/grzyClothTool_v1.3.0_full_meta_fixed.exe"
+
+          if (-not (Test-Path $sourceExe)) {
+            throw "Published EXE was not found at $sourceExe"
+          }
+
+          Copy-Item $sourceExe $targetExe
+
+          $hash = (Get-FileHash $targetExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  grzyClothTool_v1.3.0_full_meta_fixed.exe" | Set-Content -Encoding ascii "artifact/grzyClothTool_v1.3.0_full_meta_fixed.sha256"
+
+          @"
+          grzyClothTool v1.3.0 - Full Shop Meta Generator Fix
+
+          Changes:
+          - Generates one pedComponents Item for every non-reserved component texture.
+          - Generates one pedProps Item for every non-reserved prop texture.
+          - Uses drawable/prop collection index and local index based on MAX_DRAWABLES_IN_ADDON.
+          - Maps component types to PV_COMP_* and prop types to ANCHOR_*.
+          - Generates unique, project-scoped uniqueNameHash values.
+          - Keeps pedOutfits empty because no outfits are authored by the project editor.
+          - Fixes both asynchronous exporter loops so all pending file writes are awaited.
+
+          Build source commit:
+          9244b00dce5bb9956acb9999415e6537844fc42b
+          "@ | Set-Content -Encoding utf8 "artifact/grzyClothTool_v1.3.0_full_meta_fixed_NOTES.txt"
+
+          $size = (Get-Item $targetExe).Length
+          if ($size -lt 1000000) {
+            throw "Published EXE is unexpectedly small: $size bytes"
+          }
+
+          Write-Host "Built $targetExe ($size bytes)"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload fixed executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: grzyClothTool-v1.3.0-full-meta-fixed
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 7
