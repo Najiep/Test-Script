@@ -35,6 +35,17 @@ jobs:
         shell: pwsh
         run: python tools/patch_grzy_meta.py
 
+      - name: Remove upstream v1.3.0 source typo
+        shell: pwsh
+        run: |
+          $path = "source/grzyClothTool/Views/SettingsWindow.xaml.cs"
+          $content = Get-Content -Raw $path
+          $fixed = [regex]::Replace($content, "(?m)^\s*W\s*\r?\n", "")
+          if ($fixed -eq $content) {
+            throw "Expected upstream stray W line was not found"
+          }
+          Set-Content -Path $path -Value $fixed -Encoding utf8 -NoNewline
+
       - name: Build CodeWalker dependencies
         shell: pwsh
         run: |
@@ -83,6 +94,7 @@ jobs:
           - Generates unique, project-scoped uniqueNameHash values.
           - Keeps pedOutfits empty because no outfits are authored by the project editor.
           - Fixes both asynchronous exporter loops so all pending file writes are awaited.
+          - Removes a stray source typo present in the selected upstream v1.3.0 commit.
 
           Build source commit:
           9244b00dce5bb9956acb9999415e6537844fc42b
