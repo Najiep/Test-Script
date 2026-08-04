@@ -43,7 +43,13 @@ jobs:
           )
           $partTexts = @()
           for ($i = 0; $i -lt $parts.Count; $i++) {
-            $text = (Get-Content $parts[$i].FullName -Raw).Trim()
+            if ($i -eq 2) {
+              $fixParts = Get-ChildItem "dex-source-parts/fix02-*.b64" | Sort-Object Name
+              if ($fixParts.Count -ne 5) { throw "Expected 5 correction segments for source chunk 2." }
+              $text = ($fixParts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+            } else {
+              $text = (Get-Content $parts[$i].FullName -Raw).Trim()
+            }
             $actual = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
             Write-Host "$($parts[$i].Name): length=$($text.Length), sha256=$actual"
             if ($actual -ne $expectedPartHashes[$i]) { throw "Source chunk $i checksum mismatch: $actual" }
