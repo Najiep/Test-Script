@@ -27,9 +27,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $parts = Get-ChildItem "dex-source-parts/part-*.b64" | Sort-Object Name
-          if ($parts.Count -ne 9) {
-            throw "Expected 9 source chunks, found $($parts.Count)."
-          }
+          if ($parts.Count -ne 9) { throw "Expected 9 source chunks, found $($parts.Count)." }
           $expectedPartHashes = @(
             "90c0e3e74f54d87ca704445919882e85642f5ca9b6b78cfcd39a3a6bfefbb221",
             "a7f49c8fc8eaf005bf16a3ed3b83fd44e45f089002a1386e6e29503e9ea809d7",
@@ -58,21 +56,17 @@ jobs:
           $base64 = $partTexts -join ''
           [IO.File]::WriteAllBytes("Dex-Clothing-Optimizer-v0.1.0-source.zip", [Convert]::FromBase64String($base64))
           $hash = (Get-FileHash "Dex-Clothing-Optimizer-v0.1.0-source.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne "a0dc984d39371102133c555e7d6b2079ed43a999f2aa50cb25b3286d85c070e1") {
-            Write-Warning "Source archive checksum mismatch: $hash"
-          }
+          if ($hash -ne "a0dc984d39371102133c555e7d6b2079ed43a999f2aa50cb25b3286d85c070e1") { Write-Warning "Source archive checksum mismatch: $hash" }
           Write-Host "Source archive restored with hash: $hash"
 
       - name: Extract Dex source package
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $projectRoot = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer"
           Expand-Archive -Path "Dex-Clothing-Optimizer-v0.1.0-source.zip" -DestinationPath "build-src" -Force
-          if (-not (Test-Path "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj")) {
-            throw "Dex source project was not found after extraction."
-          }
-          Copy-Item "build-overrides/TexturePolicy.cs" "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Services/TexturePolicy.cs" -Force
-          Copy-Item "build-overrides/App.xaml.cs" "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/App.xaml.cs" -Force
+          if (-not (Test-Path (Join-Path $projectRoot "DexClothingOptimizer.csproj"))) { throw "Dex source project was not found after extraction." }
+          & "build-overrides/ApplyBuildFixes.ps1" -ProjectRoot $projectRoot
 
       - name: Download compatible CodeWalker and texconv dependencies
         shell: pwsh
@@ -113,14 +107,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $project = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj"
           dotnet restore $project -p:EnableWindowsTargeting=true
-          dotnet publish $project `
-            -c Release `
-            -r win-x64 `
-            --self-contained true `
-            -p:EnableWindowsTargeting=true `
-            -p:PublishSingleFile=false `
-            -p:PublishReadyToRun=false `
-            -o "publish/Dex-Clothing-Optimizer"
+          dotnet publish $project -c Release -r win-x64 --self-contained true -p:EnableWindowsTargeting=true -p:PublishSingleFile=false -p:PublishReadyToRun=false -o "publish/Dex-Clothing-Optimizer"
 
       - name: Add source and notices to package
         shell: pwsh
