@@ -72,6 +72,7 @@ jobs:
             throw "Dex source project was not found after extraction."
           }
           Copy-Item "build-overrides/TexturePolicy.cs" "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Services/TexturePolicy.cs" -Force
+          Copy-Item "build-overrides/App.xaml.cs" "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/App.xaml.cs" -Force
 
       - name: Download compatible CodeWalker and texconv dependencies
         shell: pwsh
@@ -83,7 +84,6 @@ jobs:
             "https://github.com/UmbrellaRE/ToolKitV/releases/download/v1.2.0/ToolKitV.zip",
             "https://github.com/UmbrellaRE/ToolKitV/archive/refs/tags/v1.2.0.zip"
           )
-
           foreach ($url in $urls) {
             try {
               Write-Host "Downloading $url"
@@ -91,10 +91,7 @@ jobs:
               Expand-Archive -Path "upstream/toolkitv.zip" -DestinationPath "upstream/extracted" -Force
               $codeWalker = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "CodeWalker.Core.dll" | Select-Object -First 1
               $texconv = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "texconv.exe" | Select-Object -First 1
-              if ($codeWalker -and $texconv) {
-                $downloaded = $true
-                break
-              }
+              if ($codeWalker -and $texconv) { $downloaded = $true; break }
             }
             catch {
               Write-Warning $_
@@ -102,16 +99,11 @@ jobs:
               Remove-Item "upstream/toolkitv.zip" -Force -ErrorAction SilentlyContinue
             }
           }
-
-          if (-not $downloaded) {
-            throw "Could not obtain CodeWalker.Core.dll and texconv.exe from ToolKitV v1.2.0."
-          }
-
+          if (-not $downloaded) { throw "Could not obtain CodeWalker.Core.dll and texconv.exe from ToolKitV v1.2.0." }
           $dependencyTarget = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Dependencies"
           New-Item -ItemType Directory -Force -Path $dependencyTarget | Out-Null
           Copy-Item (Join-Path $codeWalker.Directory.FullName '*') -Destination $dependencyTarget -Recurse -Force
           Copy-Item $texconv.FullName -Destination (Join-Path $dependencyTarget 'texconv.exe') -Force
-
           if (-not (Test-Path (Join-Path $dependencyTarget 'CodeWalker.Core.dll'))) { throw "CodeWalker.Core.dll copy failed." }
           if (-not (Test-Path (Join-Path $dependencyTarget 'texconv.exe'))) { throw "texconv.exe copy failed." }
 
