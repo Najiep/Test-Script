@@ -1,0 +1,125 @@
+name: Build Dex Clothing Optimizer
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Rebuild Dex source archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem "dex-source-parts/part-*.b64" | Sort-Object Name
+          if ($parts.Count -ne 9) {
+            throw "Expected 9 source chunks, found $($parts.Count)."
+          }
+          $base64 = ($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+          [IO.File]::WriteAllBytes("Dex-Clothing-Optimizer-v0.1.0-source.zip", [Convert]::FromBase64String($base64))
+          $hash = (Get-FileHash "Dex-Clothing-Optimizer-v0.1.0-source.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "a0dc984d39371102133c555e7d6b2079ed43a999f2aa50cb25b3286d85c070e1") {
+            throw "Source archive checksum mismatch: $hash"
+          }
+          Write-Host "Source archive restored and verified: $hash"
+
+      - name: Extract Dex source package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -Path "Dex-Clothing-Optimizer-v0.1.0-source.zip" -DestinationPath "build-src" -Force
+          if (-not (Test-Path "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj")) {
+            throw "Dex source project was not found after extraction."
+          }
+
+      - name: Download compatible CodeWalker and texconv dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "upstream" | Out-Null
+          $downloaded = $false
+          $urls = @(
+            "https://github.com/UmbrellaRE/ToolKitV/releases/download/v1.2.0/ToolKitV.zip",
+            "https://github.com/UmbrellaRE/ToolKitV/archive/refs/tags/v1.2.0.zip"
+          )
+
+          foreach ($url in $urls) {
+            try {
+              Write-Host "Downloading $url"
+              Invoke-WebRequest -Uri $url -OutFile "upstream/toolkitv.zip" -UseBasicParsing
+              Expand-Archive -Path "upstream/toolkitv.zip" -DestinationPath "upstream/extracted" -Force
+              $codeWalker = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "CodeWalker.Core.dll" | Select-Object -First 1
+              $texconv = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "texconv.exe" | Select-Object -First 1
+              if ($codeWalker -and $texconv) {
+                $downloaded = $true
+                break
+              }
+            }
+            catch {
+              Write-Warning $_
+              Remove-Item "upstream/extracted" -Recurse -Force -ErrorAction SilentlyContinue
+              Remove-Item "upstream/toolkitv.zip" -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          if (-not $downloaded) {
+            throw "Could not obtain CodeWalker.Core.dll and texconv.exe from ToolKitV v1.2.0."
+          }
+
+          $dependencyTarget = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Dependencies"
+          New-Item -ItemType Directory -Force -Path $dependencyTarget | Out-Null
+
+          # Copy all runtime files adjacent to CodeWalker.Core.dll, then ensure texconv is present.
+          Copy-Item (Join-Path $codeWalker.Directory.FullName '*') -Destination $dependencyTarget -Recurse -Force
+          Copy-Item $texconv.FullName -Destination (Join-Path $dependencyTarget 'texconv.exe') -Force
+
+          if (-not (Test-Path (Join-Path $dependencyTarget 'CodeWalker.Core.dll'))) { throw "CodeWalker.Core.dll copy failed." }
+          if (-not (Test-Path (Join-Path $dependencyTarget 'texconv.exe'))) { throw "texconv.exe copy failed." }
+
+          Get-ChildItem $dependencyTarget | Format-Table Name, Length
+
+      - name: Restore and publish Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj"
+          dotnet restore $project -p:EnableWindowsTargeting=true
+          dotnet publish $project `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:EnableWindowsTargeting=true `
+            -p:PublishSingleFile=false `
+            -p:PublishReadyToRun=false `
+            -o "publish/Dex-Clothing-Optimizer"
+
+      - name: Add source and notices to package
+        shell: pwsh
+        run: |
+          Copy-Item "Dex-Clothing-Optimizer-v0.1.0-source.zip" "publish/Dex-Clothing-Optimizer/" -Force
+          Copy-Item "build-src/dex_clothing_optimizer_source/README.md" "publish/Dex-Clothing-Optimizer/" -Force
+          Copy-Item "build-src/dex_clothing_optimizer_source/NOTICE.md" "publish/Dex-Clothing-Optimizer/" -Force
+          Compress-Archive -Path "publish/Dex-Clothing-Optimizer/*" -DestinationPath "Dex-Clothing-Optimizer-v0.1.0-win-x64.zip" -Force
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dex-Clothing-Optimizer-v0.1.0-win-x64
+          path: Dex-Clothing-Optimizer-v0.1.0-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
