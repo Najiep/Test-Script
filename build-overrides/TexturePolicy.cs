@@ -13,8 +13,8 @@ public static class TexturePolicy
         var isScriptRt = name.Contains("script_rt", StringComparison.OrdinalIgnoreCase);
         var scriptCompressed = isScriptRt && IsBlockCompressed(format);
 
-        var sourceWidth = Math.Max(1, texture.Width);
-        var sourceHeight = Math.Max(1, texture.Height);
+        var sourceWidth = Math.Max(1, (int)texture.Width);
+        var sourceHeight = Math.Max(1, (int)texture.Height);
         var (targetWidth, targetHeight) = DetermineTargetSize(sourceWidth, sourceHeight, settings.MaxTextureDimension);
 
         var targetFormat = DetermineTargetFormat(format, role, settings, scriptCompressed);
@@ -51,8 +51,8 @@ public static class TexturePolicy
             UncompressScriptTexture = scriptCompressed,
             ShouldProcess = shouldProcess,
             Reason = string.Join(", ", reasonParts),
-            EstimatedInputBytes = EstimateBytes(sourceWidth, sourceHeight, format, Math.Max(1, texture.Levels)),
-            EstimatedOutputBytes = EstimateBytes(targetWidth, targetHeight, targetFormat, settings.GenerateFullMipChain ? 0 : Math.Max(1, texture.Levels))
+            EstimatedInputBytes = EstimateBytes(sourceWidth, sourceHeight, format, Math.Max(1, (int)texture.Levels)),
+            EstimatedOutputBytes = EstimateBytes(targetWidth, targetHeight, targetFormat, settings.GenerateFullMipChain ? 0 : Math.Max(1, (int)texture.Levels))
         };
     }
 
@@ -95,15 +95,12 @@ public static class TexturePolicy
             OptimizationPreset.SafeQuality when role == "Normal map" => "BC5_UNORM",
             OptimizationPreset.SafeQuality when role == "Mask/specular" => alpha ? "BC7_UNORM" : "BC4_UNORM",
             OptimizationPreset.SafeQuality => "BC7_UNORM",
-
             OptimizationPreset.Balanced when role == "Normal map" => "BC5_UNORM",
             OptimizationPreset.Balanced when role == "Mask/specular" => alpha ? "BC3_UNORM" : "BC4_UNORM",
             OptimizationPreset.Balanced => alpha ? "BC3_UNORM" : "BC1_UNORM",
-
             OptimizationPreset.Aggressive when role == "Normal map" => "BC5_UNORM",
             OptimizationPreset.Aggressive when role == "Mask/specular" => alpha ? "BC3_UNORM" : "BC4_UNORM",
             OptimizationPreset.Aggressive => alpha ? "BC3_UNORM" : "BC1_UNORM",
-
             _ => MapOriginalFormat(sourceFormat)
         };
     }
