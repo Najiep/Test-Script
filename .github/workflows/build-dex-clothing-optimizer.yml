@@ -1,0 +1,116 @@
+name: Build Dex Clothing Optimizer
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Rebuild base Dex source archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem "dex-source-parts/part-*.b64" | Sort-Object Name
+          if ($parts.Count -ne 9) { throw "Expected 9 source chunks, found $($parts.Count)." }
+          $partTexts = @()
+          for ($i = 0; $i -lt $parts.Count; $i++) {
+            if ($i -eq 2) {
+              $fixParts = Get-ChildItem "dex-source-parts/fix02-*.b64" | Sort-Object Name
+              if ($fixParts.Count -ne 5) { throw "Expected 5 correction segments for source chunk 2." }
+              $text = ($fixParts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ''
+            } else {
+              $text = (Get-Content $parts[$i].FullName -Raw).Trim()
+            }
+            $partTexts += $text
+          }
+          [IO.File]::WriteAllBytes("Dex-Clothing-Optimizer-base-source.zip", [Convert]::FromBase64String(($partTexts -join '')))
+
+      - name: Apply Smart HQ 75 source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceRoot = "build-src/dex_clothing_optimizer_source"
+          $projectRoot = Join-Path $sourceRoot "DexClothingOptimizer"
+          Expand-Archive -Path "Dex-Clothing-Optimizer-base-source.zip" -DestinationPath "build-src" -Force
+          if (-not (Test-Path (Join-Path $projectRoot "DexClothingOptimizer.csproj"))) { throw "Dex source project was not found after extraction." }
+          & "build-overrides/ApplyBuildFixes.ps1" -ProjectRoot $projectRoot
+          & "build-overrides/ApplySmartHq.ps1" -SourceRoot $sourceRoot
+          if (Test-Path "Dex-Clothing-Optimizer-v0.2.0-source.zip") { Remove-Item "Dex-Clothing-Optimizer-v0.2.0-source.zip" -Force }
+          Compress-Archive -Path "$sourceRoot/*" -DestinationPath "Dex-Clothing-Optimizer-v0.2.0-source.zip" -Force
+
+      - name: Download compatible CodeWalker and texconv dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "upstream" | Out-Null
+          $downloaded = $false
+          $urls = @(
+            "https://github.com/UmbrellaRE/ToolKitV/releases/download/v1.2.0/ToolKitV.zip",
+            "https://github.com/UmbrellaRE/ToolKitV/archive/refs/tags/v1.2.0.zip"
+          )
+          foreach ($url in $urls) {
+            try {
+              Write-Host "Downloading $url"
+              Invoke-WebRequest -Uri $url -OutFile "upstream/toolkitv.zip" -UseBasicParsing
+              Expand-Archive -Path "upstream/toolkitv.zip" -DestinationPath "upstream/extracted" -Force
+              $codeWalker = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "CodeWalker.Core.dll" | Select-Object -First 1
+              $texconv = Get-ChildItem "upstream/extracted" -Recurse -File -Filter "texconv.exe" | Select-Object -First 1
+              if ($codeWalker -and $texconv) { $downloaded = $true; break }
+            }
+            catch {
+              Write-Warning $_
+              Remove-Item "upstream/extracted" -Recurse -Force -ErrorAction SilentlyContinue
+              Remove-Item "upstream/toolkitv.zip" -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if (-not $downloaded) { throw "Could not obtain CodeWalker.Core.dll and texconv.exe from ToolKitV v1.2.0." }
+          $dependencyTarget = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Dependencies"
+          New-Item -ItemType Directory -Force -Path $dependencyTarget | Out-Null
+          Copy-Item (Join-Path $codeWalker.Directory.FullName '*') -Destination $dependencyTarget -Recurse -Force
+          Copy-Item $texconv.FullName -Destination (Join-Path $dependencyTarget 'texconv.exe') -Force
+          if (-not (Test-Path (Join-Path $dependencyTarget 'CodeWalker.Core.dll'))) { throw "CodeWalker.Core.dll copy failed." }
+          if (-not (Test-Path (Join-Path $dependencyTarget 'texconv.exe'))) { throw "texconv.exe copy failed." }
+
+      - name: Restore and publish Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj"
+          dotnet restore $project -p:EnableWindowsTargeting=true
+          dotnet publish $project -c Release -r win-x64 --self-contained true -p:EnableWindowsTargeting=true -p:PublishSingleFile=false -p:PublishReadyToRun=false -o "publish/Dex-Clothing-Optimizer"
+          if (-not (Test-Path "publish/Dex-Clothing-Optimizer/DexClothingOptimizer.exe")) { throw "Published executable was not produced." }
+          if (-not (Test-Path "publish/Dex-Clothing-Optimizer/Dependencies/texconv.exe")) { throw "Published texconv dependency is missing." }
+
+      - name: Add source and notices to package
+        shell: pwsh
+        run: |
+          Copy-Item "Dex-Clothing-Optimizer-v0.2.0-source.zip" "publish/Dex-Clothing-Optimizer/" -Force
+          Copy-Item "build-src/dex_clothing_optimizer_source/README.md" "publish/Dex-Clothing-Optimizer/" -Force
+          Copy-Item "build-src/dex_clothing_optimizer_source/NOTICE.md" "publish/Dex-Clothing-Optimizer/" -Force
+          Compress-Archive -Path "publish/Dex-Clothing-Optimizer/*" -DestinationPath "Dex-Clothing-Optimizer-v0.2.0-win-x64.zip" -Force
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dex-Clothing-Optimizer-v0.2.0-win-x64
+          path: |
+            Dex-Clothing-Optimizer-v0.2.0-win-x64.zip
+            Dex-Clothing-Optimizer-v0.2.0-source.zip
+          if-no-files-found: error
+          retention-days: 30
