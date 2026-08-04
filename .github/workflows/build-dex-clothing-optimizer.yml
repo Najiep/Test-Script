@@ -71,6 +71,7 @@ jobs:
           if (-not (Test-Path "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/DexClothingOptimizer.csproj")) {
             throw "Dex source project was not found after extraction."
           }
+          Copy-Item "build-overrides/TexturePolicy.cs" "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Services/TexturePolicy.cs" -Force
 
       - name: Download compatible CodeWalker and texconv dependencies
         shell: pwsh
@@ -108,14 +109,11 @@ jobs:
 
           $dependencyTarget = "build-src/dex_clothing_optimizer_source/DexClothingOptimizer/Dependencies"
           New-Item -ItemType Directory -Force -Path $dependencyTarget | Out-Null
-
           Copy-Item (Join-Path $codeWalker.Directory.FullName '*') -Destination $dependencyTarget -Recurse -Force
           Copy-Item $texconv.FullName -Destination (Join-Path $dependencyTarget 'texconv.exe') -Force
 
           if (-not (Test-Path (Join-Path $dependencyTarget 'CodeWalker.Core.dll'))) { throw "CodeWalker.Core.dll copy failed." }
           if (-not (Test-Path (Join-Path $dependencyTarget 'texconv.exe'))) { throw "texconv.exe copy failed." }
-
-          Get-ChildItem $dependencyTarget | Format-Table Name, Length
 
       - name: Restore and publish Windows x64
         shell: pwsh
