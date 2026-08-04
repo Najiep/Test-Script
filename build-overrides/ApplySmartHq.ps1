@@ -32,6 +32,14 @@ if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force }
 Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
 Copy-Item (Join-Path $extractPath '*') -Destination $SourceRoot -Recurse -Force
 
+# GlobalUsings.cs already provides the WPF MessageBox alias in the base build fixes.
+# Remove the duplicate file-level alias from the Smart HQ MainWindow source.
+$mainWindowPath = Join-Path $SourceRoot 'DexClothingOptimizer/MainWindow.xaml.cs'
+$mainWindowText = Get-Content $mainWindowPath -Raw
+$mainWindowText = $mainWindowText.Replace("using MessageBox = System.Windows.MessageBox;`r`n", '')
+$mainWindowText = $mainWindowText.Replace("using MessageBox = System.Windows.MessageBox;`n", '')
+Set-Content -Path $mainWindowPath -Value $mainWindowText -Encoding utf8
+
 $required = @(
     'DexClothingOptimizer/DexClothingOptimizer.csproj',
     'DexClothingOptimizer/MainWindow.xaml',
